@@ -195,6 +195,11 @@ impl KingAllowedMovementCalculator {
         
         // it is safe to unwrap since it is king position
         let king = board.get(from).unwrap();
+
+        if self.default_allowed_move_calulator.check_verifier.is_position_being_attacked(from, board, king.get_color().opponent()) {
+            return None;
+        }
+
         let initital_position = from;
         while let Some(position) = from.inc(0, column_inc) {
 
@@ -233,14 +238,16 @@ impl AllPiecesAllowedMoveCalculator {
         
         for (row, columns) in board.get_pieces() {
             for (column, piece) in columns {
-                let from = Position::new(*row, *column);
-                let positions = 
-                    self.allowed_move_calculators
-                        .get(piece)
-                        .unwrap()
-                        .calculate(board, from);
+                if piece.get_color() == board.get_current() {
+                    let from = Position::new(*row, *column);
+                    let positions = 
+                        self.allowed_move_calculators
+                            .get(piece)
+                            .unwrap()
+                            .calculate(board, from);
 
-                result.insert((*piece, from), positions);
+                    result.insert((*piece, from), positions);
+                }
             }
         }
         
