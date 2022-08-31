@@ -1,47 +1,48 @@
 use std::collections::HashMap;
 
-use super::{move_calculator::{MoveCalculator, self, pawn_move_calculator::PawnMoveCalculator, bishop_move_calculator::BishopMoveCalulator, king_move_calculator::KingMoveCalculator, knight_move_calculator::KnightMoveCalculator, queen_move_calculator::QueenMoveCalculator, rook_move_calculator::RookMoveCalculator}, check_verifier::{CheckVerifier, self, create_check_verifier}, Board, Position, Piece, Piece::*, Color, Color::*};
+use super::{move_calculator::{MoveCalculator, pawn_move_calculator::PawnMoveCalculator, bishop_move_calculator::BishopMoveCalulator, king_move_calculator::KingMoveCalculator, knight_move_calculator::KnightMoveCalculator, queen_move_calculator::QueenMoveCalculator, rook_move_calculator::RookMoveCalculator}, check_verifier::{CheckVerifier, self, create_check_verifier}, Board, Position, Piece, Piece::*, Color, Color::*};
 
-fn create_bishop_allowed_move_calculator() -> AllowedMovementCalculator {
-    AllowedMovementCalculator::new(
+fn create_bishop_allowed_move_calculator() -> Box<dyn MoveCalculator> {
+    Box::new(DefaultAllowedMovementCalculator::new(
         Box::new(BishopMoveCalulator),
         create_check_verifier(),
-    )
+    ))
 }
 
-fn create_king_allowed_move_calculator() -> AllowedMovementCalculator {
-    AllowedMovementCalculator::new(
-        Box::new(KingMoveCalculator),
-        create_check_verifier(),
-    )
+fn create_king_allowed_move_calculator() -> Box<dyn MoveCalculator> {
+    Box::new(KingAllowedMovementCalculator::new(
+        DefaultAllowedMovementCalculator::new(
+            Box::new(KingMoveCalculator),
+            create_check_verifier(),
+    )))
 }
 
-fn create_knight_allowed_move_calculator() -> AllowedMovementCalculator {
-    AllowedMovementCalculator::new(
+fn create_knight_allowed_move_calculator() -> Box<dyn MoveCalculator> {
+    Box::new(DefaultAllowedMovementCalculator::new(
         Box::new(KnightMoveCalculator),
         create_check_verifier(),
-    )
+    ))
 }
 
-fn create_pawn_allowed_move_calculator() -> AllowedMovementCalculator {
-    AllowedMovementCalculator::new(
+fn create_pawn_allowed_move_calculator() -> Box<dyn MoveCalculator> {
+    Box::new(DefaultAllowedMovementCalculator::new(
         Box::new(PawnMoveCalculator),
         create_check_verifier(),
-    )
+    ))
 }
 
-fn create_queen_allowed_move_calculator() -> AllowedMovementCalculator {
-    AllowedMovementCalculator::new(
+fn create_queen_allowed_move_calculator() -> Box<dyn MoveCalculator> {
+    Box::new(DefaultAllowedMovementCalculator::new(
         Box::new(QueenMoveCalculator),
         create_check_verifier(),
-    )
+    ))
 }
 
-fn create_rook_allowed_move_calculator() -> AllowedMovementCalculator {
-    AllowedMovementCalculator::new(
+fn create_rook_allowed_move_calculator() -> Box<dyn MoveCalculator> {
+    Box::new(DefaultAllowedMovementCalculator::new(
         Box::new(RookMoveCalculator),
         create_check_verifier(),
-    )
+    ))
 }
 
 pub fn create_all_pieces_allowed_moved_calculator() -> AllPiecesAllowedMoveCalculator {
@@ -99,18 +100,18 @@ pub fn create_all_pieces_allowed_moved_calculator() -> AllPiecesAllowedMoveCalcu
     AllPiecesAllowedMoveCalculator { allowed_move_calculators }
 }
 
-struct AllowedMovementCalculator {
+struct DefaultAllowedMovementCalculator {
     move_calculator: Box<dyn MoveCalculator>,
     check_verifier: CheckVerifier,
 }
 
-impl AllowedMovementCalculator {
-    fn new(move_calculator: Box<dyn MoveCalculator>, check_verifier: CheckVerifier) -> AllowedMovementCalculator {
-        AllowedMovementCalculator { move_calculator, check_verifier }
+impl DefaultAllowedMovementCalculator {
+    fn new(move_calculator: Box<dyn MoveCalculator>, check_verifier: CheckVerifier) -> DefaultAllowedMovementCalculator {
+        DefaultAllowedMovementCalculator { move_calculator, check_verifier }
     }
 }
 
-impl MoveCalculator for AllowedMovementCalculator {
+impl MoveCalculator for DefaultAllowedMovementCalculator {
     
     fn calculate(&self, board: &Board, from: Position) -> Vec<Position> {
         let positions = self.move_calculator.calculate(board, from);
@@ -131,8 +132,93 @@ impl MoveCalculator for AllowedMovementCalculator {
     }
 }
 
+struct KingAllowedMovementCalculator {
+    default_allowed_move_calulator: DefaultAllowedMovementCalculator,
+}
+
+impl KingAllowedMovementCalculator {
+    fn new(default_allowed_move_calulator: DefaultAllowedMovementCalculator) -> KingAllowedMovementCalculator {
+        KingAllowedMovementCalculator { default_allowed_move_calulator }
+    }
+}
+
+impl MoveCalculator for KingAllowedMovementCalculator {
+    fn calculate(&self, board: &Board, from: Position) -> Vec<Position> {
+        let positions = self.default_allowed_move_calulator.calculate(board, from);
+
+        self.add_castle_position(board, from, positions)
+    }
+}
+
+impl KingAllowedMovementCalculator {
+    fn add_castle_position(
+        &self, 
+        board: &Board, 
+        from: Position, 
+        mut positions: Vec<Position>) -> Vec<Position> {
+
+        let initial_white_king_position = Position::new(1, 'e');
+        let initial_black_king_position = Position::new(8, 'e');
+
+        if from != initial_black_king_position && from != initial_white_king_position {
+            // not a castle
+            return positions;
+        }
+
+        // it is guaranteed to be a king since it is a private method
+        // called only when the position is already a king.
+        let king = board.get(from).unwrap();
+
+        if king.is_white() && !board.white_castle_helper.can_castle() {
+            // cannot castle 
+            return positions;
+        }
+
+        if !king.is_white() && !board.black_castle_helper.can_castle() {
+            // cannot castle
+            return positions;
+        }
+
+        if let Some(position) = self.get_castle_position(board, from, 1) {
+            positions.push(position);
+        }
+
+        if let Some(position) = self.get_castle_position(board, from, -1) {
+            positions.push(position);
+        }
+
+        positions
+        
+    }
+
+    fn get_castle_position(&self, board: &Board, mut from: Position, column_inc: i8) -> Option<Position> {
+        
+        // it is safe to unwrap since it is king position
+        let king = board.get(from).unwrap();
+        let initital_position = from;
+        while let Some(position) = from.inc(0, column_inc) {
+
+            if let Some(Piece::Rook(_)) = board.get(position) {
+                return initital_position.inc(0, 2 * column_inc);
+            }
+
+            if !board.is_empty(position) {
+                break;
+            }
+
+            if self.default_allowed_move_calulator.check_verifier.is_position_being_attacked(position, board, king.get_color().opponent()) {
+                break;
+            }
+
+            from = position;
+        }
+
+        None
+    }
+}
+
 pub struct AllPiecesAllowedMoveCalculator {
-    allowed_move_calculators: HashMap<Piece, AllowedMovementCalculator>,
+    allowed_move_calculators: HashMap<Piece, Box<dyn MoveCalculator>>,
 }
 
 impl AllPiecesAllowedMoveCalculator {

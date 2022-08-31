@@ -1,4 +1,4 @@
-use crate::model::{Board, Piece::King, Position};
+use crate::model::{Board, Piece::{King, self}, Position};
 
 use super::MoveCalculator;
 
@@ -6,7 +6,7 @@ pub struct KingMoveCalculator;
 
 impl MoveCalculator for KingMoveCalculator {
     fn calculate(&self, board: &Board, from: Position) -> Vec<Position> {
-        let incs = vec![(1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (0, 1)];
+        let incs = vec![(1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (0, 1), (-1, 0), (0, -1)];
 
         let king = board.get(from);
 
@@ -37,7 +37,11 @@ impl MoveCalculator for KingMoveCalculator {
             }
 
             positions
+
         } else {
             panic!("The piece {:?} at position {:?} is not a king", king, from);
-        }    }
+        }    
+    }
+
 }
+

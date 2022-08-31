@@ -20,6 +20,13 @@ const LAST_ROW: Row = 8;
 const FIRST_COLUMN: Column = 'a';
 const LAST_COLUMN: Column = 'h';
 
+pub const WHITE_KING_INITIAL_POSITION: Position = Position { row: 1, column: 'e' };
+pub const WHITE_ROOK_KING_INITIAL_POSITION: Position = Position { row: 1, column: 'h' };
+pub const WHITE_ROOK_QUEEN_INITIAL_POSITION: Position = Position { row: 1, column: 'a' };
+pub const BLACK_KING_INITIAL_POSITION: Position = Position { row: 8, column: 'e' };
+pub const BLACK_ROOK_KING_INITIAL_POSITION: Position = Position { row: 8, column: 'h' };
+pub const BLACK_ROOK_QUEEN_INITIAL_POSITION: Position = Position { row: 8, column: 'a' };
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Player {
     pub id: String,
@@ -40,12 +47,19 @@ pub trait PlayerRepository: Sync + Send {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum GameStatus {
-    Draw,
+    Draw(DrawReason),
     Resignation,
     CheckMate,
-    StaleMate,
     Timeout,
     InProgress,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum DrawReason {
+    StaleMate,
+    InsufficientMaterial,
+    Agreement,
+    ThreeFoldRepetition,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,7 +108,7 @@ impl Game {
             }
             
         } else if is_check_mate_or_stale_mate {
-            self.status = GameStatus::StaleMate;
+            self.status = GameStatus::Draw(DrawReason::StaleMate);
         }
     }
 }
@@ -331,11 +345,52 @@ pub fn to_piece(piece: String, color: Color) -> Result<Piece, String> {
     Err(format!("Piece {} is not valid", piece))
 }
 
+#[derive(Debug, Copy, Clone, Serialize)]
+pub struct CastleHelper {
+    pub queen_rook_has_moved: bool,
+    pub king_rook_has_moved: bool,
+    pub king_has_moved: bool,
+}
+
+impl CastleHelper {
+
+    fn new() -> CastleHelper {
+        CastleHelper { queen_rook_has_moved: false, king_rook_has_moved: false, king_has_moved: false }
+    }
+
+    fn from(queen_rook_has_moved: bool, king_rook_has_moved: bool, king_has_moved: bool) -> CastleHelper {
+        CastleHelper { queen_rook_has_moved, king_rook_has_moved, king_has_moved }
+    }
+
+    fn can_castle(&self) -> bool {
+        (!self.queen_rook_has_moved && !self.king_has_moved)
+        || (!self.king_rook_has_moved && !self.king_has_moved)
+    }
+
+    fn update(&self, from: Position) -> CastleHelper {
+        if from == WHITE_KING_INITIAL_POSITION || from == BLACK_KING_INITIAL_POSITION {
+            return CastleHelper::from(self.queen_rook_has_moved, self.king_rook_has_moved, true);
+        }
+
+        if from == WHITE_ROOK_KING_INITIAL_POSITION || from == BLACK_ROOK_KING_INITIAL_POSITION {
+            return CastleHelper::from(self.queen_rook_has_moved, true, self.king_has_moved);
+        }
+
+        if from == WHITE_ROOK_QUEEN_INITIAL_POSITION || from == BLACK_ROOK_QUEEN_INITIAL_POSITION {
+            return CastleHelper::from(true, self.king_rook_has_moved, self.king_has_moved);
+        }
+
+        *self
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Board {
     current: Color,
     pieces: HashMap<Row, HashMap<Column, Piece>>,
     en_passant: Option<Position>,
+    white_castle_helper: CastleHelper,
+    black_castle_helper: CastleHelper,
 }
 
 pub(crate) fn create_initial_pieces() -> HashMap<Row, HashMap<Column, Piece>> {
@@ -386,6 +441,8 @@ impl Board {
             pieces, 
             current: Color::White,
             en_passant: None,
+            white_castle_helper: CastleHelper::new(),
+            black_castle_helper: CastleHelper::new(),
         }
     }
 
@@ -398,6 +455,16 @@ impl Board {
     }
 
     pub fn move_piece(&self, from: Position, to: Position, keep_current: bool, promote: Option<Piece>) -> Result<Board, String> {
+        if let Some(castle_info) = self.get_castle_info(from, to) {
+            let board = self.do_move_piece(from, to, true, promote)?;
+
+            board.do_move_piece(castle_info.rook_origin, castle_info.rook_destination, keep_current, promote)
+        } else {
+            self.do_move_piece(from, to, keep_current, promote)
+        }
+    }
+
+    fn do_move_piece(&self, from: Position, to: Position, keep_current: bool, promote: Option<Piece>) -> Result<Board, String> {
         let piece = self.get(from);
 
         if let Some(piece) = piece {
@@ -439,6 +506,8 @@ impl Board {
                 pieces,
                 current: if keep_current { self.current } else { self.current.opponent() },
                 en_passant: self.get_en_passant(from, to),
+                white_castle_helper: self.white_castle_helper.update(from),
+                black_castle_helper: self.black_castle_helper.update(from),
             })
         } else {
             panic!("There is no piece at position {:?}", from);
@@ -465,14 +534,6 @@ impl Board {
         self.get(position) == None
     }
 
-    pub fn can_move(
-        &self, 
-        from: Position, 
-        to: Position) -> bool {
-
-        false
-    }
-
     pub fn get_current_king_position(&self) -> Position {
         for (row, values) in &self.pieces {
             for (column, piece) in values {
@@ -495,26 +556,6 @@ impl Board {
         }
 
         panic!("Board in invalid state: no king for color {:?}", self.current.opponent());
-    }
-
-    pub fn is_check(&self) -> bool {
-        let current_king_position = self.get_current_king_position();
-
-        let mut opponent_positions = vec![];
-        
-        for (row, columns) in &self.pieces {
-            for (column, piece) in columns {
-                if piece.get_color() != self.current {
-                    opponent_positions.push(Position::new(*row, *column));
-                }
-            }
-        }
-
-        for piece in opponent_positions {
-
-        }
-
-        false
     }
 
     fn is_king_around(&self, position: Position, color: Color) -> bool {
@@ -569,6 +610,75 @@ impl Board {
         
     }
 
+    fn get_castle_info(&self, from: Position, to: Position) -> Option<CastleInfo> {
+        let white_king_position = Position::new(1, 'e');
+        let black_king_position = Position::new(8, 'e');
+        let white_king_small_castle_destination = Position::new(1, 'g');
+        let white_king_big_castle_destination = Position::new(1, 'c');
+        let black_king_small_castle_destination = Position::new(8, 'g');
+        let black_king_big_castle_destination = Position::new(8, 'c');
+        let white_rook_queen_origin = Position::new(1, 'a');
+        let white_rook_queen_destination = Position::new(1, 'd');
+        let white_rook_king_origin = Position::new(1, 'h');
+        let white_rook_king_destination = Position::new(1, 'f');
+        let black_rook_queen_origin = Position::new(8, 'a');
+        let black_rook_queen_destination = Position::new(8, 'd');
+        let black_rook_king_origin = Position::new(8, 'h');
+        let black_rook_king_destination = Position::new(8, 'f');
+
+        if from != white_king_position && from != black_king_position {
+            return None;
+        }
+
+        if let Some(King(color)) = self.get(from) {
+
+            if *color == White && !self.white_castle_helper.can_castle() {
+                return None;
+            }
+
+            if *color == Black && !self.black_castle_helper.can_castle() {
+                return None;
+            }
+
+            if *color == White && to == white_king_small_castle_destination {
+                return Some(CastleInfo {
+                    rook_origin: white_rook_king_origin,
+                    rook_destination: white_rook_king_destination, 
+                });
+            }
+
+            if *color == White && to == white_king_big_castle_destination {
+                return Some(CastleInfo {
+                    rook_origin: white_rook_queen_origin,
+                    rook_destination: white_rook_queen_destination, 
+                });
+            }
+
+            if *color == Black && to == black_king_small_castle_destination {
+                return Some(CastleInfo {
+                    rook_origin: black_rook_king_origin,
+                    rook_destination: black_rook_king_destination, 
+                });
+            }
+
+            if *color == Black && to == black_king_big_castle_destination {
+                return Some(CastleInfo {
+                    rook_origin: black_rook_queen_origin,
+                    rook_destination: black_rook_queen_destination, 
+                });
+            }
+
+            None
+        } else {
+            None
+        }
+    }
+
+}
+
+struct CastleInfo {
+    rook_origin: Position,
+    rook_destination: Position,
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::model::{Board, Position, Piece, Piece::*, Color::*};
 
-use super::move_calculator::{MoveCalculator, pawn_move_calculator::PawnMoveCalculator, bishop_move_calculator::BishopMoveCalulator, king_move_calculator::KingMoveCalculator, knight_move_calculator::KnightMoveCalculator, queen_move_calculator::QueenMoveCalculator, rook_move_calculator::RookMoveCalculator};
+use super::{move_calculator::{MoveCalculator, pawn_move_calculator::PawnMoveCalculator, bishop_move_calculator::BishopMoveCalulator, king_move_calculator::KingMoveCalculator, knight_move_calculator::KnightMoveCalculator, queen_move_calculator::QueenMoveCalculator, rook_move_calculator::RookMoveCalculator}, Color};
 
 fn create_bishop_check_verifier() -> Box<dyn PieceCheckVerifier> {
     Box::new(DefaultPieceCheckVerifier {
@@ -88,24 +88,40 @@ impl CheckVerifier {
     }
 
     // Verifies if the current player's king is in check.
-    pub (crate) fn is_check(&self, board: &Board) -> bool {
+    pub fn is_check(&self, board: &Board) -> bool {
+        let opponent_positions = self.get_opponent_positions(board, board.get_current().opponent());
+
+        let king_position = board.get_current_king_position();
+
+        self.is_position_being_attacked_by(opponent_positions, king_position, board)
+    }
+
+    fn get_opponent_positions(&self, board: &Board, color: Color) -> Vec<Position> {
         let mut opponent_positions = vec![];
         
         for (row, columns) in board.get_pieces() {
             for (column, piece) in columns {
-                if piece.get_color() == board.get_current().opponent() {
+                if piece.get_color() == color {
                     opponent_positions.push(Position::new(*row, *column));
                 }
             }
         }
 
-        let king_position = board.get_current_king_position();
+        opponent_positions
+    }
 
-        for from in opponent_positions {
+    fn is_position_being_attacked_by(
+        &self,
+        by_positions: Vec<Position>,
+        position: Position,
+        board: &Board
+    ) -> bool {
+
+        for from in by_positions {
             let piece = board.get(from).unwrap();
 
             let is_check = self.check_verifiers.get(piece).unwrap()
-                .is_check(board, from, king_position);
+                .is_check(board, from, position);
 
             if is_check {
                 return true;
@@ -113,6 +129,13 @@ impl CheckVerifier {
         }
 
         false
+
+    }
+
+    pub fn is_position_being_attacked(&self, position: Position, board: &Board, color: Color) -> bool {
+        let opponent_positions = self.get_opponent_positions(board, color);
+
+        self.is_position_being_attacked_by(opponent_positions, position, board)
     }
 
 }

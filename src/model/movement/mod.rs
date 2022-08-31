@@ -25,6 +25,7 @@ impl MovementExecutor {
             let can_move = piece.get_color() == board.get_current() 
                 && origin == from 
                 && allowed_positions.contains(&to);
+            
             if can_move {
                 return board.move_piece(from, to, false, promote);
             }
