@@ -4,6 +4,7 @@ extern crate actix_web;
 use std::sync::{Mutex, Arc};
 use std::{env, io};
 
+use actix_cors::Cors;
 use actix_web::{middleware, App, HttpServer};
 use chessforyou::application::game_app_service::{GameAppService, self};
 use chessforyou::application::player_app_service::PlayerAppService;
@@ -54,8 +55,13 @@ async fn main() -> io::Result<()> {
     env::set_var("RUST_LOG", "actix_web=debug,actix_server=info");
     env_logger::init();
 
+    
+
     HttpServer::new(move || {
+        let cors = Cors::permissive();
+
         App::new()
+            .wrap(cors)
             .data(app_services.0.clone())
             .data(app_services.1.clone())
             // enable logger - always register actix-web Logger middleware last

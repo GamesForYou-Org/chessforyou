@@ -34,17 +34,14 @@ pub async fn get(
     player_app_service: web::Data<Arc<Mutex<PlayerAppService<'_>>>>
 ) -> HttpResponse {
 
-    let path_tuple = path.0;
-    let player_id = path_tuple.0;
+    let player_id = &path.0;
 
-    let player_id = match Uuid::parse_str(&player_id) {
+    let player_id = match Uuid::parse_str(player_id) {
         Ok(player_id) => player_id,
         Err(error) => {
             return HttpResponse::BadRequest()
             .content_type(APPLICATION_JSON)
             .json(format!("Player id is not UUID {}: {}", player_id, error))
-            .await
-            .unwrap()
         }
     };
 
