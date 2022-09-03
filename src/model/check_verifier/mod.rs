@@ -59,7 +59,7 @@ pub fn create_check_verifier() -> CheckVerifier {
     CheckVerifier::new(check_verifiers)
 }
 
-trait PieceCheckVerifier: Sync + Send {
+pub trait PieceCheckVerifier: Sync + Send {
     /// Verifies king is in check.
     fn is_check(&self, board: &Board, from: Position, opponent_king_position: Position) -> bool;
 }
